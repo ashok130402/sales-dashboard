@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Executive Sales Performance Dashboard</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- PapaParse for robust CSV parsing -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    body {
+      font-family: 'Inter', sans-serif;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased min-h-screen p-4 md:p-8">
+
+  <div class="max-w-7xl mx-auto space-y-6">
+
+    <!-- Header & Controls -->
+    <header class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+      <div>
+        <div class="flex items-center gap-3">
+          <h1 class="text-2xl md:text-3xl font-bold text-slate-900 tracking-tight">
+            Sales Performance Dashboard
+          </h1>
+          <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            LIVE SYNC
+          </span>
+        </div>
+        <p class="text-slate-500 text-sm mt-1">
+          Connected to Google Sheets • <span id="dataRowCount" class="font-medium text-slate-700">Loading dataset...</span>
+        </p>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-3">
+        <!-- Date Range Filter -->
+        <div class="flex items-center gap-2 bg-slate-100 p-1.5 rounded-xl border border-slate-200">
+          <i data-lucide="calendar" class="w-4 h-4 text-slate-500 ml-2"></i>
+          <select id="dateFilter" onchange="applyFilters()" class="bg-transparent text-slate-700 text-sm font-medium pr-2 outline-none cursor-pointer">
+            <option value="all">All Time</option>
+            <option value="30">Last 30 Days</option>
+            <option value="90">Last 90 Days</option>
+            <option value="365">This Year</option>
+          </select>
+        </div>
+
+        <!-- Detailed Category Filter -->
+        <div class="flex items-center gap-2 bg-slate-100 p-1.5 rounded-xl border border-slate-200">
+          <i data-lucide="filter" class="w-4 h-4 text-slate-500 ml-2"></i>
+          <select id="categoryFilter" onchange="applyFilters()" class="bg-transparent text-slate-700 text-sm font-medium pr-2 outline-none cursor-pointer max-w-[200px] truncate">
+            <option value="all">All Detailed Categories</option>
+          </select>
+        </div>
+
+        <!-- Refresh Button -->
+        <button onclick="fetchData()" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-sm px-4 py-2.5 rounded-xl transition-all shadow-sm active:scale-95">
+          <i data-lucide="refresh-cw" class="w-4 h-4" id="refreshIcon"></i>
+          <span>Sync Now</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Status Alert Bar -->
+    <div id="statusMessage" class="hidden p-4 rounded-xl text-sm font-medium border transition-all"></div>
+
+    <!-- Top KPI Cards Grid -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      
+      <!-- Total Sales -->
+      <div class="bg-white border border-slate-200/80 p-5 rounded-2xl shadow-sm hover:shadow-md transition">
+        <div class="flex items-center justify-between text-slate-500 mb-2">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Total Sales</span>
+          <div class="p-2 bg-indigo-50 text-indigo-600 rounded-xl"><i data-lucide="dollar-sign" class="w-5 h-5"></i></div>
+        </div>
+        <div class="text-2xl font-bold text-slate-900" id="kpiRevenue">$0.00</div>
+        <div class="text-xs text-slate-500 mt-1">Gross sales amount</div>
+      </div>
+
+      <!-- Unique Orders -->
+      <div class="bg-white border border-slate-200/80 p-5 rounded-2xl shadow-sm hover:shadow-md transition">
+        <div class="flex items-center justify-between text-slate-500 mb-2">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Unique Orders</span>
+          <div class="p-2 bg-purple-50 text-purple-600 rounded-xl"><i data-lucide="shopping-bag" class="w-5 h-5"></i></div>
+        </div>
+        <div class="text-2xl font-bold text-slate-900" id="kpiOrders">0</div>
+        <div class="text-xs text-slate-500 mt-1">Excludes Canceled/Fraud</div>
+      </div>
+
+      <!-- Units Sold -->
+      <div class="bg-white border border-slate-200/80 p-5 rounded-2xl shadow-sm hover:shadow-md transition">
+        <div class="flex items-center justify-between text-slate-500 mb-2">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Units Sold</span>
+          <div class="p-2 bg-amber-50 text-amber-600 rounded-xl"><i data-lucide="package" class="w-5 h-5"></i></div>
+        </div>
+        <div class="text-2xl font-bold text-slate-900" id="kpiQuantity">0</div>
+        <div class="text-xs text-slate-500 mt-1">Sum of order qty</div>
+      </div>
+
+      <!-- COGS -->
+      <div class="bg-white border border-slate-200/80 p-5 rounded-2xl shadow-sm hover:shadow-md transition">
+        <div class="flex items-center justify-between text-slate-500 mb-2">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-400">COGS</span>
+          <div class="p-2 bg-rose-50 text-rose-600 rounded-xl"><i data-lucide="calculator" class="w-5 h-5"></i></div>
+        </div>
+        <div class="text-2xl font-bold text-slate-900" id="kpiCogs">$0.00</div>
+        <div class="text-xs text-slate-500 mt-1">Cost of goods sold</div>
+      </div>
+
+      <!-- Net Profit & Margin -->
+      <div class="bg-white border border-slate-200/80 p-5 rounded-2xl shadow-sm hover:shadow-md transition">
+        <div class="flex items-center justify-between text-slate-500 mb-2">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Net Profit</span>
+          <div class="p-2 bg-emerald-50 text-emerald-600 rounded-xl"><i data-lucide="trending-up" class="w-5 h-5"></i></div>
+        </div>
+        <div class="text-2xl font-bold text-emerald-600" id="kpiProfit">$0.00</div>
+        <div class="text-xs text-slate-500 mt-1">Margin: <span id="kpiMargin" class="text-emerald-700 font-bold">0%</span></div>
+      </div>
+
+    </div>
+
+    <!-- Charts Section -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+      <!-- Monthly Time Series Chart (2 Cols) -->
+      <div class="lg:col-span-2 bg-white border border-slate-200/80 p-6 rounded-2xl shadow-sm">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h2 class="text-lg font-bold text-slate-900">Monthly Sales & Profit Trend</h2>
+            <p class="text-xs text-slate-500">Chronological time series of Sales Amount vs Net Profit</p>
+          </div>
+        </div>
+        <div class="relative h-72">
+          <canvas id="monthlyTrendChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Top 5 Detailed Category Donut Chart (1 Col) -->
+      <div class="bg-white border border-slate-200/80 p-6 rounded-2xl shadow-sm">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h2 class="text-lg font-bold text-slate-900">Top 5 Detailed Categories</h2>
+            <p class="text-xs text-slate-500">Sales share by detailed category type</p>
+          </div>
+        </div>
+        <div class="relative h-72 flex items-center justify-center">
+          <canvas id="categoryChart"></canvas>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Performance & Order Ratios Panel -->
+    <div class="bg-white border border-slate-200/80 p-6 rounded-2xl shadow-sm">
+      <h2 class="text-lg font-bold text-slate-900 mb-4">Efficiency & Order Ratios</h2>
+      
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        
+        <div class="p-4 bg-slate-50 rounded-xl border border-slate-200/60">
+          <div class="text-xs font-semibold text-slate-500 uppercase">Avg Order Value (AOV)</div>
+          <div class="text-xl font-bold text-slate-900 mt-1" id="ratioAov">$0.00</div>
+          <div class="text-xs text-slate-500 mt-0.5">Sales ÷ Unique Orders</div>
+        </div>
+
+        <div class="p-4 bg-slate-50 rounded-xl border border-slate-200/60">
+          <div class="text-xs font-semibold text-slate-500 uppercase">Units Per Order (UPO)</div>
+          <div class="text-xl font-bold text-slate-900 mt-1" id="ratioUpo">0.0</div>
+          <div class="text-xs text-slate-500 mt-0.5">Units Sold ÷ Unique Orders</div>
+        </div>
+
+        <div class="p-4 bg-slate-50 rounded-xl border border-slate-200/60">
+          <div class="text-xs font-semibold text-slate-500 uppercase">Repeat Customer Rate</div>
+          <div class="text-xl font-bold text-indigo-600 mt-1" id="ratioRepeat">0.0%</div>
+          <div class="text-xs text-slate-500 mt-0.5">Repeat customer order share</div>
+        </div>
+
+        <div class="p-4 bg-slate-50 rounded-xl border border-slate-200/60">
+          <div class="text-xs font-semibold text-slate-500 uppercase">Overall Return Rate</div>
+          <div class="text-xl font-bold text-rose-600 mt-1" id="ratioReturn">0.0%</div>
+          <div class="text-xs text-slate-500 mt-0.5">Returned order share</div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Brand Bifurcation Table -->
+    <div class="bg-white border border-slate-200/80 rounded-2xl shadow-sm overflow-hidden">
+      <div class="p-6 border-b border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 class="text-lg font-bold text-slate-900">Brand Bifurcation & Performance</h2>
+          <p class="text-xs text-slate-500">Aggregated sales, profit, order quantity, COGS, and return rate by brand</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <div class="relative w-full sm:w-64">
+            <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+            <input type="text" id="searchInput" oninput="renderBrandTable()" placeholder="Search brand..." class="w-full bg-slate-50 border border-slate-200 text-slate-800 text-sm rounded-xl pl-9 pr-4 py-2 focus:ring-2 focus:ring-indigo-500 outline-none" />
+          </div>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-sm text-slate-700">
+          <thead class="bg-slate-50 text-xs uppercase font-semibold text-slate-500 border-b border-slate-200">
+            <tr>
+              <th class="px-6 py-3.5 cursor-pointer hover:bg-slate-100" onclick="sortBrandTable('brand')">Brand Name ⇕</th>
+              <th class="px-6 py-3.5 text-right cursor-pointer hover:bg-slate-100" onclick="sortBrandTable('sales')">Sales Amount ⇕</th>
+              <th class="px-6 py-3.5 text-right cursor-pointer hover:bg-slate-100" onclick="sortBrandTable('profit')">Net Profit ⇕</th>
+              <th class="px-6 py-3.5 text-right cursor-pointer hover:bg-slate-100" onclick="sortBrandTable('margin')">Margin % ⇕</th>
+              <th class="px-6 py-3.5 text-right cursor-pointer hover:bg-slate-100" onclick="sortBrandTable('qty')">Order Qty ⇕</th>
+              <th class="px-6 py-3.5 text-right cursor-pointer hover:bg-slate-100" onclick="sortBrandTable('cogs')">COGS ⇕</th>
+              <th class="px-6 py-3.5 text-right cursor-pointer hover:bg-slate-100" onclick="sortBrandTable('returnRate')">Return Rate ⇕</th>
+            </tr>
+          </thead>
+          <tbody id="brandTableBody" class="divide-y divide-slate-200/70">
+            <tr>
+              <td colspan="7" class="text-center py-8 text-slate-400">Loading brand data...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRPtpKd15Kr_cxGXjbV9IAkHFF6AKxpOB6YMeQH_u8nLWaHRunNiuOfeaXKsHqQB2V6q4AiaVcAws3B/pub?gid=252557471&single=true&output=csv";
+
+    let rawData = [];
+    let filteredData = [];
+    let brandAggregated = [];
+    let sortColumn = 'sales';
+    let sortAscending = false;
+
+    let monthlyChart = null;
+    let categoryChart = null;
+
+    lucide.createIcons();
+
+    // Helper: Find matching object key flexibly
+    function getValueByKey(row, keywords) {
+      if (!row) return null;
+      const keys = Object.keys(row);
+      for (const kw of keywords) {
+        const kwClean = kw.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const foundKey = keys.find(k => k.toLowerCase().replace(/[^a-z0-9]/g, '') === kwClean);
+        if (foundKey && row[foundKey] !== undefined && row[foundKey] !== '') {
+          return row[foundKey];
+        }
+      }
+      for (const kw of keywords) {
+        const kwClean = kw.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const foundKey = keys.find(k => k.toLowerCase().replace(/[^a-z0-9]/g, '').includes(kwClean));
+        if (foundKey && row[foundKey] !== undefined && row[foundKey] !== '') {
+          return row[foundKey];
+        }
+      }
+      return null;
+    }
+
+    function parseNumber(val) {
+      if (val === null || val === undefined) return 0;
+      const clean = String(val).replace(/[^0-9.-]+/g, "");
+      return parseFloat(clean) || 0;
+    }
+
+    // Looker Studio Logic for Order Status Exclusion
+    function isStatusValidForUniqueOrder(statusStr) {
+      if (!statusStr) return true;
+      const s = String(statusStr).trim().toLowerCase();
+      // Exclude: "canceled", "waiting_for_wire", "closed", "fraud"
+      const invalid = ['canceled', 'cancelled', 'waiting_for_wire', 'waiting for wire', 'closed', 'fraud'];
+      return !invalid.includes(s);
+    }
+
+    function fetchData() {
+      const refreshIcon = document.getElementById('refreshIcon');
+      refreshIcon.classList.add('animate-spin');
+
+      Papa.parse(CSV_URL, {
+        download: true,
+        header: true,
+        skipEmptyLines: 'greedy',
+        complete: function(results) {
+          refreshIcon.classList.remove('animate-spin');
+
+          if (!results.data || results.data.length === 0) {
+            showStatus("Connected to Google Sheet, but no rows were returned.", "bg-amber-50 text-amber-800 border-amber-200");
+            return;
+          }
+
+          processParsedData(results.data);
+          showStatus(`Successfully loaded ${results.data.length.toLocaleString()} records!`, "bg-emerald-50 text-emerald-800 border-emerald-200");
+        },
+        error: function(err) {
+          refreshIcon.classList.remove('animate-spin');
+          showStatus("Failed to download CSV from Google Sheets. Error: " + err, "bg-rose-50 text-rose-800 border-rose-200");
+        }
+      });
+    }
+
+    function showStatus(msg, classes) {
+      const el = document.getElementById('statusMessage');
+      el.className = `p-4 rounded-xl text-sm font-medium border ${classes}`;
+      el.innerText = msg;
+      el.classList.remove('hidden');
+      setTimeout(() => el.classList.add('hidden'), 4000);
+    }
+
+    function processParsedData(data) {
+      rawData = data.map((row, idx) => {
+        const rawDate = getValueByKey(row, ['order_date', 'order date', 'date', 'created_at', 'day']) || '';
+        const orderStatus = getValueByKey(row, ['order_status', 'order status', 'status', 'orderstatus']) || '';
+        const uniqueOrderVal = getValueByKey(row, ['unique_order_count', 'unique order count', 'uniqueordercount', 'unique_orders']);
+        
+        const salesAmount = parseNumber(getValueByKey(row, ['sales_amount', 'sales amount', 'salesamount', 'gross_sales', 'sales', 'revenue', 'total_amount']));
+        const orderQty = parseNumber(getValueByKey(row, ['order_qty', 'order qty', 'orderqty', 'quantity', 'qty', 'units_sold', 'units']));
+        const cogs = parseNumber(getValueByKey(row, ['cogs', 'cost_of_goods_sold', 'cost of goods sold', 'cost', 'unit_cost']));
+        
+        const detailedCategory = getValueByKey(row, ['detailed_category_type', 'detailed category type', 'detailedcategorytype', 'detailed_category', 'detailed category', 'subcategory', 'category']) || 'Uncategorized';
+        const brand = getValueByKey(row, ['brand', 'brand_name', 'brand name', 'manufacturer', 'vendor']) || 'Other Brand';
+        
+        const rawRepeat = getValueByKey(row, ['repeat_customer', 'repeat customer', 'repeatcustomer', 'is_repeat', 'customer_type']);
+        const rawReturn = getValueByKey(row, ['return_qty', 'returned_qty', 'is_returned', 'returned', 'return_status']);
+
+        // Looker Studio logic: SUM(CASE WHEN Order_status != "Canceled" AND Order_status != "waiting_for_wire" AND Order_status != "closed" AND Order_status != "Fraud" THEN Unique_Order_Count ELSE 0 END)
+        const validStatus = isStatusValidForUniqueOrder(orderStatus);
+        let calculatedUniqueOrder = 0;
+        if (validStatus) {
+          calculatedUniqueOrder = uniqueOrderVal !== null ? parseNumber(uniqueOrderVal) : 1;
+        }
+
+        // Repeat Customer flag
+        let isRepeat = false;
+        if (rawRepeat !== null) {
+          const rStr = String(rawRepeat).trim().toLowerCase();
+          isRepeat = ['1', 'true', 'yes', 'repeat', 'returning', 'y'].includes(rStr);
+        }
+
+        // Returned flag
+        let isReturned = false;
+        if (rawReturn !== null) {
+          const retStr = String(rawReturn).trim().toLowerCase();
+          isReturned = ['1', 'true', 'yes', 'returned', 'refunded', 'y'].includes(retStr) || parseNumber(retStr) > 0;
+        }
+        if (String(orderStatus).trim().toLowerCase().includes('return') || String(orderStatus).trim().toLowerCase().includes('refund')) {
+          isReturned = true;
+        }
+
+        const dateObj = rawDate ? new Date(rawDate) : new Date();
+        const validDate = isNaN(dateObj.getTime()) ? new Date() : dateObj;
+
+        return {
+          date: validDate,
+          rawDate: rawDate,
+          orderStatus: String(orderStatus).trim(),
+          uniqueOrderCount: calculatedUniqueOrder,
+          salesAmount: salesAmount,
+          orderQty: orderQty,
+          cogs: cogs,
+          profit: salesAmount - cogs,
+          detailedCategory: String(detailedCategory).trim(),
+          brand: String(brand).trim(),
+          isRepeat: isRepeat,
+          isReturned: isReturned
+        };
+      });
+
+      document.getElementById('dataRowCount').innerText = `${rawData.length.toLocaleString()} records connected`;
+      populateCategoryDropdown();
+      applyFilters();
+    }
+
+    function populateCategoryDropdown() {
+      const categories = [...new Set(rawData.map(item => item.detailedCategory))].filter(Boolean);
+      const select = document.getElementById('categoryFilter');
+      const currentVal = select.value;
+      
+      select.innerHTML = '<option value="all">All Detailed Categories</option>';
+      categories.sort().forEach(cat => {
+        const opt = document.createElement('option');
+        opt.value = cat;
+        opt.innerText = cat;
+        select.appendChild(opt);
+      });
+
+      if (categories.includes(currentVal)) select.value = currentVal;
+    }
+
+    function applyFilters() {
+      const dateRange = document.getElementById('dateFilter').value;
+      const selectedCat = document.getElementById('categoryFilter').value;
+      const now = new Date();
+
+      filteredData = rawData.filter(item => {
+        // Date range filter
+        if (dateRange !== 'all') {
+          const days = parseInt(dateRange);
+          const diffDays = (now - item.date) / (1000 * 3600 * 24);
+          if (diffDays > days || diffDays < 0) return false;
+        }
+
+        // Detailed category filter
+        if (selectedCat !== 'all' && item.detailedCategory !== selectedCat) {
+          return false;
+        }
+
+        return true;
+      });
+
+      updateDashboard();
+    }
+
+    function updateDashboard() {
+      let totalSales = 0;
+      let totalUniqueOrders = 0;
+      let totalQty = 0;
+      let totalCogs = 0;
+      let totalProfit = 0;
+      let repeatOrdersCount = 0;
+      let returnedOrdersCount = 0;
+
+      filteredData.forEach(item => {
+        totalSales += item.salesAmount;
+        totalUniqueOrders += item.uniqueOrderCount;
+        totalQty += item.orderQty;
+        totalCogs += item.cogs;
+        totalProfit += item.profit;
+
+        if (item.isRepeat) repeatOrdersCount++;
+        if (item.isReturned) returnedOrdersCount++;
+      });
+
+      const profitMargin = totalSales > 0 ? (totalProfit / totalSales) * 100 : 0;
+      const aov = totalUniqueOrders > 0 ? totalSales / totalUniqueOrders : 0;
+      const upo = totalUniqueOrders > 0 ? totalQty / totalUniqueOrders : 0;
+      const repeatRate = totalUniqueOrders > 0 ? (repeatOrdersCount / totalUniqueOrders) * 100 : 0;
+      const returnRate = totalUniqueOrders > 0 ? (returnedOrdersCount / totalUniqueOrders) * 100 : 0;
+
+      // Update KPI Cards
+      document.getElementById('kpiRevenue').innerText = formatCurrency(totalSales);
+      document.getElementById('kpiOrders').innerText = Math.round(totalUniqueOrders).toLocaleString();
+      document.getElementById('kpiQuantity').innerText = totalQty.toLocaleString();
+      document.getElementById('kpiCogs').innerText = formatCurrency(totalCogs);
+      document.getElementById('kpiProfit').innerText = formatCurrency(totalProfit);
+      document.getElementById('kpiMargin').innerText = profitMargin.toFixed(1) + '%';
+
+      // Update Ratios
+      document.getElementById('ratioAov').innerText = formatCurrency(aov);
+      document.getElementById('ratioUpo').innerText = upo.toFixed(1);
+      document.getElementById('ratioRepeat').innerText = repeatRate.toFixed(1) + '%';
+      document.getElementById('ratioReturn').innerText = returnRate.toFixed(1) + '%';
+
+      renderMonthlyChart();
+      renderCategoryChart();
+      aggregateBrandData();
+    }
+
+    function formatCurrency(val) {
+      return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(val);
+    }
+
+    // Time Series Line Chart (Monthly Sales & Profit)
+    function renderMonthlyChart() {
+      const monthlyMap = {};
+
+      filteredData.forEach(item => {
+        const year = item.date.getFullYear();
+        const month = String(item.date.getMonth() + 1).padStart(2, '0');
+        const sortKey = `${year}-${month}`;
+        const monthLabel = item.date.toLocaleString('default', { month: 'short', year: '2-digit' });
+
+        if (!monthlyMap[sortKey]) {
+          monthlyMap[sortKey] = { label: monthLabel, sales: 0, profit: 0 };
+        }
+        monthlyMap[sortKey].sales += item.salesAmount;
+        monthlyMap[sortKey].profit += item.profit;
+      });
+
+      const sortedKeys = Object.keys(monthlyMap).sort();
+      const labels = sortedKeys.map(k => monthlyMap[k].label);
+      const salesData = sortedKeys.map(k => monthlyMap[k].sales);
+      const profitData = sortedKeys.map(k => monthlyMap[k].profit);
+
+      const ctx = document.getElementById('monthlyTrendChart').getContext('2d');
+      if (monthlyChart) monthlyChart.destroy();
+
+      monthlyChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels.length ? labels : ['No Data'],
+          datasets: [
+            {
+              label: 'Sales Amount',
+              data: salesData,
+              borderColor: '#4f46e5',
+              backgroundColor: 'rgba(79, 70, 229, 0.08)',
+              fill: true,
+              tension: 0.35,
+              borderWidth: 2.5,
+              pointRadius: 3
+            },
+            {
+              label: 'Net Profit',
+              data: profitData,
+              borderColor: '#10b981',
+              backgroundColor: 'rgba(16, 185, 129, 0.08)',
+              fill: true,
+              tension: 0.35,
+              borderWidth: 2.5,
+              pointRadius: 3
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'top', labels: { color: '#334155', font: { family: 'Inter', size: 12, weight: '600' } } }
+          },
+          scales: {
+            x: { ticks: { color: '#64748b' }, grid: { color: '#f1f5f9' } },
+            y: { ticks: { color: '#64748b' }, grid: { color: '#f1f5f9' } }
+          }
+        }
+      });
+    }
+
+    // Donut Chart: Top 5 Detailed Category Types
+    function renderCategoryChart() {
+      const catMap = {};
+      filteredData.forEach(item => {
+        catMap[item.detailedCategory] = (catMap[item.detailedCategory] || 0) + item.salesAmount;
+      });
+
+      const sorted = Object.entries(catMap).sort((a, b) => b[1] - a[1]);
+      const top5 = sorted.slice(0, 5);
+      const others = sorted.slice(5).reduce((acc, curr) => acc + curr[1], 0);
+
+      const labels = top5.map(i => i[0]);
+      const data = top5.map(i => i[1]);
+
+      if (others > 0) {
+        labels.push('Others');
+        data.push(others);
+      }
+
+      const ctx = document.getElementById('categoryChart').getContext('2d');
+      if (categoryChart) categoryChart.destroy();
+
+      categoryChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: labels.length ? labels : ['No Data'],
+          datasets: [{
+            data: data.length ? data : [1],
+            backgroundColor: ['#4f46e5', '#0284c7', '#10b981', '#f59e0b', '#8b5cf6', '#94a3b8'],
+            borderWidth: 2,
+            borderColor: '#ffffff'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'bottom', labels: { color: '#334155', boxWidth: 12, font: { family: 'Inter', size: 11 } } }
+          }
+        }
+      });
+    }
+
+    // Brand Bifurcation Table Aggregation
+    function aggregateBrandData() {
+      const brandMap = {};
+
+      filteredData.forEach(item => {
+        const b = item.brand || 'Other Brand';
+        if (!brandMap[b]) {
+          brandMap[b] = {
+            brand: b,
+            sales: 0,
+            cogs: 0,
+            profit: 0,
+            qty: 0,
+            uniqueOrders: 0,
+            returnedOrders: 0
+          };
+        }
+
+        brandMap[b].sales += item.salesAmount;
+        brandMap[b].cogs += item.cogs;
+        brandMap[b].profit += item.profit;
+        brandMap[b].qty += item.orderQty;
+        brandMap[b].uniqueOrders += item.uniqueOrderCount;
+        if (item.isReturned) brandMap[b].returnedOrders++;
+      });
+
+      brandAggregated = Object.values(brandMap).map(b => {
+        const margin = b.sales > 0 ? (b.profit / b.sales) * 100 : 0;
+        const returnRate = b.uniqueOrders > 0 ? (b.returnedOrders / b.uniqueOrders) * 100 : 0;
+        return {
+          ...b,
+          margin: margin,
+          returnRate: returnRate
+        };
+      });
+
+      renderBrandTable();
+    }
+
+    function sortBrandTable(col) {
+      if (sortColumn === col) {
+        sortAscending = !sortAscending;
+      } else {
+        sortColumn = col;
+        sortAscending = false;
+      }
+      renderBrandTable();
+    }
+
+    function renderBrandTable() {
+      const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+      const tbody = document.getElementById('brandTableBody');
+
+      let list = brandAggregated.filter(b => b.brand.toLowerCase().includes(searchTerm));
+
+      list.sort((a, b) => {
+        let valA = a[sortColumn];
+        let valB = b[sortColumn];
+
+        if (typeof valA === 'string') {
+          return sortAscending ? valA.localeCompare(valB) : valB.localeCompare(valA);
+        }
+        return sortAscending ? valA - valB : valB - valA;
+      });
+
+      if (list.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-slate-400">No matching brands found.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = list.map(b => `
+        <tr class="hover:bg-slate-50 transition">
+          <td class="px-6 py-4 font-semibold text-slate-900">${b.brand}</td>
+          <td class="px-6 py-4 text-right font-medium text-slate-900">${formatCurrency(b.sales)}</td>
+          <td class="px-6 py-4 text-right font-bold ${b.profit >= 0 ? 'text-emerald-600' : 'text-rose-600'}">${formatCurrency(b.profit)}</td>
+          <td class="px-6 py-4 text-right"><span class="px-2.5 py-1 rounded-md text-xs font-semibold ${b.margin >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}">${b.margin.toFixed(1)}%</span></td>
+          <td class="px-6 py-4 text-right font-mono">${b.qty.toLocaleString()}</td>
+          <td class="px-6 py-4 text-right font-mono text-slate-500">${formatCurrency(b.cogs)}</td>
+          <td class="px-6 py-4 text-right font-mono font-medium ${b.returnRate > 10 ? 'text-rose-600' : 'text-slate-700'}">${b.returnRate.toFixed(1)}%</td>
+        </tr>
+      `).join('');
+    }
+
+    // Initial Load & Auto Refresh Interval (every 30 seconds)
+    fetchData();
+    setInterval(fetchData, 30000);
+  </script>
+</body>
+</html>
